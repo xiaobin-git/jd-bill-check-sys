@@ -13,6 +13,14 @@ def _normalize_string_value(value: Any) -> Any:
     return text or None
 
 
+def _is_non_settlement_status(value: Any) -> bool:
+    text = _normalize_string_value(value)
+    if not text:
+        return False
+    normalized = text.replace(" ", "")
+    return normalized == "不结算" or "不结算" in normalized
+
+
 def _decode_text_content(content: bytes) -> str:
     encodings = ["utf-8", "utf-8-sig", "gb18030", "gbk"]
     for encoding in encodings:
@@ -34,9 +42,14 @@ def _read_tabular_file(content: bytes, filename: str) -> pd.DataFrame:
     raise ValueError("仅支持 csv、xls、xlsx 文件")
 
 
-def parse_jd_bill_file(content: bytes, filename: str) -> List[Dict[str, Any]]:
+def read_tabular_dataframe(content: bytes, filename: str) -> pd.DataFrame:
     df = _read_tabular_file(content, filename)
-    df.columns = df.columns.str.strip()
+    df.columns = [str(column).strip() for column in df.columns]
+    return df
+
+
+def parse_jd_bill_file(content: bytes, filename: str) -> List[Dict[str, Any]]:
+    df = read_tabular_dataframe(content, filename)
     
     column_mapping = {
         "订单编号": "order_no",
@@ -87,12 +100,15 @@ def parse_jd_bill_file(content: bytes, filename: str) -> List[Dict[str, Any]]:
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    if "settlement_status" in df.columns and "settlement_amount" in df.columns:
+        non_settlement_mask = df["settlement_status"].apply(_is_non_settlement_status)
+        df.loc[non_settlement_mask, "settlement_amount"] = 0
     
     result = [record for record in df.to_dict("records") if record.get("order_no")]
     return result
 
 
 def parse_generic_file(content: bytes, filename: str) -> List[Dict[str, Any]]:
-    df = _read_tabular_file(content, filename)
-    df.columns = df.columns.str.strip()
+    df = read_tabular_dataframe(content, filename)
     return df.to_dict("records")

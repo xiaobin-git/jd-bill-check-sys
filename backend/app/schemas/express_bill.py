@@ -6,7 +6,9 @@ from typing import Optional
 class ExpressBillBase(BaseModel):
     express_no: str
     address: Optional[str] = None
+    created_time: Optional[datetime] = None
     weight: Optional[float] = None
+    volume: Optional[float] = None
     freight: Optional[float] = None
     carrier: Optional[str] = None
 

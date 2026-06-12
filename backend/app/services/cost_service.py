@@ -9,17 +9,30 @@ class CostService:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_costs(self, skip: int = 0, limit: int = 100, shop_name: Optional[str] = None) -> List[Cost]:
+    def _build_query(self, shop_name: Optional[str] = None):
         query = self.db.query(Cost)
         if shop_name:
-            query = query.filter(Cost.shop_name == shop_name)
-        return query.offset(skip).limit(limit).all()
+            query = query.filter(Cost.shop_name.contains(shop_name))
+        return query
+
+    def get_costs(self, skip: int = 0, limit: int = 100, shop_name: Optional[str] = None) -> List[Cost]:
+        query = self._build_query(shop_name=shop_name)
+        return query.order_by(Cost.id.desc()).offset(skip).limit(limit).all()
+
+    def count_costs(self, shop_name: Optional[str] = None) -> int:
+        return self._build_query(shop_name=shop_name).count()
+
+    def list_costs(self, shop_name: Optional[str] = None) -> List[Cost]:
+        return self._build_query(shop_name=shop_name).order_by(Cost.id.desc()).all()
 
     def get_cost(self, cost_id: int) -> Optional[Cost]:
         return self.db.query(Cost).filter(Cost.id == cost_id).first()
 
     def get_cost_by_sku(self, shop_name: str, sku: str) -> Optional[Cost]:
         return self.db.query(Cost).filter(Cost.shop_name == shop_name, Cost.sku == sku).first()
+
+    def get_cost_by_global_sku(self, sku: str) -> Optional[Cost]:
+        return self.db.query(Cost).filter(Cost.sku == sku).order_by(Cost.id.asc()).first()
 
     def create_cost(self, cost: CostCreate) -> Cost:
         existing = self.get_cost_by_sku(cost.shop_name, cost.sku)
@@ -35,6 +48,24 @@ class CostService:
         result = []
         for cost in costs:
             result.append(self.create_cost(cost))
+        return result
+
+    def import_costs_batch(self, costs: List[CostCreate]) -> List[Cost]:
+        self._dedupe_existing_costs_by_sku()
+        result = []
+        for cost in costs:
+            existing = self.get_cost_by_global_sku(cost.sku)
+            if existing:
+                existing.product_name = cost.product_name
+                existing.cost = cost.cost
+                result.append(existing)
+            else:
+                db_cost = Cost(**cost.model_dump())
+                self.db.add(db_cost)
+                result.append(db_cost)
+        self.db.commit()
+        for item in result:
+            self.db.refresh(item)
         return result
 
     def update_cost(self, cost_id: int, cost: CostUpdate) -> Optional[Cost]:
@@ -54,26 +85,42 @@ class CostService:
             return True
         return False
 
+    def _dedupe_existing_costs_by_sku(self) -> None:
+        rows = self.db.query(Cost).filter(Cost.sku.isnot(None), Cost.sku != "").order_by(Cost.sku.asc(), Cost.id.asc()).all()
+        groups = {}
+        for row in rows:
+            groups.setdefault(row.sku, []).append(row)
+
+        for sku_rows in groups.values():
+            if len(sku_rows) <= 1:
+                continue
+            preferred = next((row for row in sku_rows if (row.cost or 0) > 0), sku_rows[0])
+            for row in sku_rows:
+                if row.id != preferred.id:
+                    self.db.delete(row)
+
     def sync_from_jd_bills(self, shop_name: Optional[str] = None) -> int:
+        self._dedupe_existing_costs_by_sku()
         query = self.db.query(JDBillItem)
         if shop_name:
             query = query.join(JDBillItem.bill).filter(JDBillItem.bill.has(shop_name=shop_name))
-        
-        items = query.all()
+
+        items = query.order_by(JDBillItem.id.desc()).all()
         synced = 0
-        
+        existing_skus = {row[0] for row in self.db.query(Cost.sku).filter(Cost.sku.isnot(None), Cost.sku != "").all()}
+
         for item in items:
-            if item.product_no and item.bill:
-                existing = self.get_cost_by_sku(item.bill.shop_name, item.product_no)
-                if not existing:
-                    cost = Cost(
-                        shop_name=item.bill.shop_name,
-                        sku=item.product_no,
-                        product_name=item.product_name,
-                        cost=0.0
-                    )
-                    self.db.add(cost)
-                    synced += 1
-        
+            sku = (item.product_no or "").strip() if item.product_no else ""
+            if sku and item.bill and sku not in existing_skus:
+                cost = Cost(
+                    shop_name=item.bill.shop_name,
+                    sku=sku,
+                    product_name=item.product_name,
+                    cost=0.0
+                )
+                self.db.add(cost)
+                existing_skus.add(sku)
+                synced += 1
+
         self.db.commit()
         return synced

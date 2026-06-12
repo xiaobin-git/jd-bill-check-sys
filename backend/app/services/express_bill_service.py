@@ -11,8 +11,23 @@ class ExpressBillService:
     def get_bills(self, skip: int = 0, limit: int = 100, carrier: Optional[str] = None) -> List[ExpressBill]:
         query = self.db.query(ExpressBill)
         if carrier:
-            query = query.filter(ExpressBill.carrier == carrier)
-        return query.offset(skip).limit(limit).all()
+            query = query.filter(ExpressBill.carrier.contains(carrier))
+        return query.order_by(ExpressBill.id.desc()).offset(skip).limit(limit).all()
+
+    def count_bills(self, carrier: Optional[str] = None) -> int:
+        query = self.db.query(ExpressBill)
+        if carrier:
+            query = query.filter(ExpressBill.carrier.contains(carrier))
+        return query.count()
+
+    def get_distinct_carriers(self) -> List[str]:
+        rows = (
+            self.db.query(ExpressBill.carrier)
+            .filter(ExpressBill.carrier.isnot(None), ExpressBill.carrier != "")
+            .distinct()
+            .all()
+        )
+        return sorted([row[0] for row in rows if row[0]])
 
     def get_bill(self, bill_id: int) -> Optional[ExpressBill]:
         return self.db.query(ExpressBill).filter(ExpressBill.id == bill_id).first()

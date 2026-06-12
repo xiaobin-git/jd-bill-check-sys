@@ -20,7 +20,7 @@
             <el-input v-model="filters.shop_name" placeholder="输入店铺名称" clearable />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" @click="loadOrders">查询</el-button>
+            <el-button type="primary" @click="applyFilters">查询</el-button>
           </el-form-item>
         </el-form>
       </div>
@@ -56,6 +56,17 @@
         </template>
       </el-table-column>
     </el-table>
+    <div style="display: flex; justify-content: flex-end; margin-top: 16px">
+      <el-pagination
+        v-model:current-page="pagination.page"
+        v-model:page-size="pagination.page_size"
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="pagination.total"
+        @current-change="loadOrders"
+        @size-change="handlePageSizeChange"
+      />
+    </div>
 
     <el-dialog v-model="dialogVisible" :title="editing ? '编辑订单' : '添加订单'" width="760px">
       <el-form :model="form" label-width="120px">
@@ -147,6 +158,7 @@ const createEmptyForm = () => ({
 const orders = ref([])
 const selectedOrders = ref([])
 const filters = ref({ shop_name: '' })
+const pagination = ref({ page: 1, page_size: 20, total: 0 })
 const dialogVisible = ref(false)
 const editing = ref(false)
 const form = ref(createEmptyForm())
@@ -154,8 +166,13 @@ const editingId = ref(null)
 
 const loadOrders = async () => {
   try {
-    const res = await erpOrderApi.getOrders(filters.value)
-    orders.value = res.data
+    const res = await erpOrderApi.getOrders({
+      ...filters.value,
+      page: pagination.value.page,
+      page_size: pagination.value.page_size
+    })
+    orders.value = res.data.items
+    pagination.value.total = res.data.total
   } catch (e) {
     ElMessage.error('加载失败')
   }
@@ -235,6 +252,7 @@ const handleUpload = async (file) => {
   try {
     await erpOrderApi.uploadOrders(file.raw)
     ElMessage.success('上传成功')
+    pagination.value.page = 1
     loadOrders()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '上传失败')
@@ -257,6 +275,16 @@ const formatCurrency = (value) => {
 
 const handleSelectionChange = (selection) => {
   selectedOrders.value = selection
+}
+
+const applyFilters = () => {
+  pagination.value.page = 1
+  loadOrders()
+}
+
+const handlePageSizeChange = () => {
+  pagination.value.page = 1
+  loadOrders()
 }
 
 onMounted(() => {

@@ -35,7 +35,7 @@
       </div>
     </el-card>
 
-    <el-table :data="displayBills" style="width: 100%" @selection-change="handleSelectionChange">
+    <el-table :data="bills" style="width: 100%" @selection-change="handleSelectionChange">
       <el-table-column type="selection" width="55" />
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="date_range" label="账单月份" />
@@ -51,6 +51,17 @@
         </template>
       </el-table-column>
     </el-table>
+    <div style="display: flex; justify-content: flex-end; margin-top: 16px">
+      <el-pagination
+        v-model:current-page="pagination.page"
+        v-model:page-size="pagination.page_size"
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="pagination.total"
+        @current-change="loadBills"
+        @size-change="handlePageSizeChange"
+      />
+    </div>
 
     <el-dialog v-model="dialogVisible" :title="editing ? '编辑账单' : '创建账单'" width="500px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
@@ -83,7 +94,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { jdBillApi } from '../api'
@@ -97,29 +108,34 @@ const editing = ref(false)
 const formRef = ref(null)
 const form = ref({ date_range: '', shop_name: '' })
 const filters = ref({ date_range: '', shop_name: '' })
-const appliedFilters = ref({ date_range: '', shop_name: '' })
 const editingId = ref(null)
+const pagination = ref({ page: 1, page_size: 20, total: 0 })
 const rules = {
   date_range: [{ required: true, message: '请选择账单月份', trigger: 'change' }],
   shop_name: [{ required: true, message: '请输入店铺名称', trigger: 'blur' }]
 }
-const displayBills = computed(() => {
-  return bills.value.filter((item) => {
-    const matchMonth = !appliedFilters.value.date_range || item.date_range === appliedFilters.value.date_range
-    const matchShop =
-      !appliedFilters.value.shop_name ||
-      item.shop_name?.toLowerCase().includes(appliedFilters.value.shop_name.trim().toLowerCase())
-    return matchMonth && matchShop
-  })
-})
 
 const loadBills = async () => {
   try {
-    const res = await jdBillApi.getBills()
-    bills.value = res.data
-    shopOptions.value = [...new Set(res.data.map((item) => item.shop_name).filter(Boolean))]
+    const res = await jdBillApi.getBills({
+      page: pagination.value.page,
+      page_size: pagination.value.page_size,
+      date_range: filters.value.date_range || undefined,
+      shop_name: filters.value.shop_name.trim() || undefined
+    })
+    bills.value = res.data.items
+    pagination.value.total = res.data.total
   } catch (e) {
     ElMessage.error('加载失败')
+  }
+}
+
+const loadShopOptions = async () => {
+  try {
+    const res = await jdBillApi.getShopNames()
+    shopOptions.value = res.data || []
+  } catch (e) {
+    ElMessage.error('店铺名称加载失败')
   }
 }
 
@@ -159,6 +175,7 @@ const saveBill = async () => {
     ElMessage.success('保存成功')
     dialogVisible.value = false
     loadBills()
+    loadShopOptions()
   } catch (e) {
     ElMessage.error('保存失败')
   }
@@ -170,6 +187,7 @@ const deleteBill = async (id) => {
     await jdBillApi.deleteBill(id)
     ElMessage.success('删除成功')
     loadBills()
+    loadShopOptions()
   } catch (e) {
     if (e !== 'cancel') {
       ElMessage.error('删除失败')
@@ -184,6 +202,7 @@ const batchDeleteBills = async () => {
     ElMessage.success('批量删除成功')
     selectedBills.value = []
     loadBills()
+    loadShopOptions()
   } catch (e) {
     if (e !== 'cancel') {
       ElMessage.error('批量删除失败')
@@ -200,10 +219,8 @@ const queryShopSuggestions = (queryString, cb) => {
 }
 
 const applyFilters = () => {
-  appliedFilters.value = {
-    date_range: filters.value.date_range,
-    shop_name: filters.value.shop_name.trim()
-  }
+  pagination.value.page = 1
+  loadBills()
 }
 
 const handleSelectionChange = (selection) => {
@@ -214,7 +231,13 @@ const goToDetail = (id) => {
   router.push(`/jd-bills/${id}`)
 }
 
+const handlePageSizeChange = () => {
+  pagination.value.page = 1
+  loadBills()
+}
+
 onMounted(() => {
   loadBills()
+  loadShopOptions()
 })
 </script>

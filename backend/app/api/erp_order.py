@@ -56,10 +56,13 @@ def _parse_int(value):
         return None
 
 
-@router.get("", response_model=List[ERPOrder])
-def get_orders(skip: int = 0, limit: int = 100, shop_name: Optional[str] = None, db: Session = Depends(get_db)):
+@router.get("")
+def get_orders(page: int = 1, page_size: int = 20, shop_name: Optional[str] = None, db: Session = Depends(get_db)):
     service = ERPOrderService(db)
-    return service.get_orders(skip=skip, limit=limit, shop_name=shop_name)
+    skip = max(page - 1, 0) * page_size
+    items = service.get_orders(skip=skip, limit=page_size, shop_name=shop_name)
+    total = service.count_orders(shop_name=shop_name)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/{order_id}", response_model=ERPOrder)

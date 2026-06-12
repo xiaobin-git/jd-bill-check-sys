@@ -4,7 +4,26 @@
     <el-card style="margin-bottom: 20px">
       <el-form :inline="true" :model="filters">
         <el-form-item label="店铺名称">
-          <el-input v-model="filters.shop_name" placeholder="输入店铺名称" clearable />
+          <el-select v-model="filters.shop_name" placeholder="选择店铺名称" style="width: 220px">
+            <el-option label="全部" value="全部" />
+            <el-option
+              v-for="item in shopOptions"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="日期范围">
+          <el-date-picker
+            v-model="filters.date_range"
+            type="daterange"
+            value-format="YYYY-MM-DD"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            style="width: 320px"
+          />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="loadData">查询</el-button>
@@ -62,7 +81,7 @@
               <template #default="{ row }">¥{{ row.amount?.toFixed(2) }}</template>
             </el-table-column>
             <el-table-column prop="percent" label="占比">
-              <template #default="{ row }">{{ row.percent?.toFixed(1) }}%</template>
+              <template #default="{ row }">{{ row.percent?.toFixed(3) }}%</template>
             </el-table-column>
           </el-table>
         </el-card>
@@ -80,7 +99,7 @@
               <template #default="{ row }">¥{{ row.amount?.toFixed(2) }}</template>
             </el-table-column>
             <el-table-column prop="percent" label="占比">
-              <template #default="{ row }">{{ row.percent?.toFixed(1) }}%</template>
+              <template #default="{ row }">{{ row.percent?.toFixed(3) }}%</template>
             </el-table-column>
           </el-table>
         </el-card>
@@ -92,14 +111,33 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { dashboardApi } from '../api'
+import { dashboardApi, jdBillApi } from '../api'
 
-const filters = ref({ shop_name: '' })
+const filters = ref({ shop_name: '全部', date_range: [] })
 const data = ref({})
+const shopOptions = ref([])
+
+const buildQueryParams = () => {
+  const [startDate, endDate] = filters.value.date_range || []
+  return {
+    shop_name: filters.value.shop_name === '全部' ? undefined : filters.value.shop_name,
+    start_date: startDate || undefined,
+    end_date: endDate || undefined
+  }
+}
+
+const loadShopOptions = async () => {
+  try {
+    const res = await jdBillApi.getShopNames()
+    shopOptions.value = res.data || []
+  } catch (e) {
+    ElMessage.error('店铺名称加载失败')
+  }
+}
 
 const loadData = async () => {
   try {
-    const res = await dashboardApi.getProfit(filters.value)
+    const res = await dashboardApi.getProfit(buildQueryParams())
     data.value = res.data
   } catch (e) {
     ElMessage.error('加载数据失败')
@@ -107,10 +145,11 @@ const loadData = async () => {
 }
 
 const exportData = () => {
-  dashboardApi.exportDetail(filters.value)
+  dashboardApi.exportDetail(buildQueryParams())
 }
 
 onMounted(() => {
+  loadShopOptions()
   loadData()
 })
 </script>

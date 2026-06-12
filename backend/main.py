@@ -4,6 +4,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.api import jd_bill, erp_order, express_bill, cost, dashboard
+from app.utils.express_field_mapping import ensure_mapping_file
 
 Base.metadata.create_all(bind=engine)
 
@@ -29,7 +30,21 @@ def ensure_erp_order_columns():
                 conn.execute(text(f"ALTER TABLE erp_orders ADD COLUMN {column_name} {column_type}"))
 
 
+def ensure_express_bill_columns():
+    expected_columns = {
+        "created_time": "DATETIME",
+        "volume": "FLOAT",
+    }
+    with engine.begin() as conn:
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(express_bills)")).fetchall()}
+        for column_name, column_type in expected_columns.items():
+            if column_name not in existing:
+                conn.execute(text(f"ALTER TABLE express_bills ADD COLUMN {column_name} {column_type}"))
+
+
 ensure_erp_order_columns()
+ensure_express_bill_columns()
+ensure_mapping_file()
 
 app = FastAPI(title="京东账单核对系统")
 

@@ -5,14 +5,8 @@
       <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap">
         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
           <el-button type="primary" @click="showCreateDialog">添加成本</el-button>
-          <el-upload
-            :auto-upload="false"
-            :show-file-list="false"
-            accept=".csv,.xls,.xlsx"
-            @change="handleUpload"
-          >
-            <el-button>上传文件</el-button>
-          </el-upload>
+          <el-button @click="openImportDialog">导入</el-button>
+          <el-button @click="exportCosts">导出</el-button>
           <el-button type="success" @click="syncCosts">从京东账单同步</el-button>
           <el-button type="danger" :disabled="selectedCosts.length === 0" @click="batchDeleteCosts">批量删除</el-button>
         </div>
@@ -21,7 +15,7 @@
             <el-input v-model="filters.shop_name" placeholder="输入店铺名称" clearable />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" @click="loadCosts">查询</el-button>
+            <el-button type="primary" @click="applyFilters">查询</el-button>
           </el-form-item>
         </el-form>
       </div>
@@ -43,6 +37,17 @@
         </template>
       </el-table-column>
     </el-table>
+    <div style="display: flex; justify-content: flex-end; margin-top: 16px">
+      <el-pagination
+        v-model:current-page="pagination.page"
+        v-model:page-size="pagination.page_size"
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="pagination.total"
+        @current-change="loadCosts"
+        @size-change="handlePageSizeChange"
+      />
+    </div>
 
     <el-dialog v-model="dialogVisible" :title="editing ? '编辑成本' : '添加成本'" width="500px">
       <el-form :model="form" label-width="100px">
@@ -64,6 +69,26 @@
         <el-button type="primary" @click="saveCost">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="importDialogVisible" title="导入成本" width="520px">
+      <div style="display: flex; flex-direction: column; gap: 16px">
+        <el-button @click="downloadTemplate">下载模板</el-button>
+        <el-upload
+          :auto-upload="false"
+          :show-file-list="true"
+          :limit="1"
+          accept=".csv,.xls,.xlsx"
+          @change="handleImportFileChange"
+          @remove="handleImportFileRemove"
+        >
+          <el-button type="primary">选择上传文件</el-button>
+        </el-upload>
+      </div>
+      <template #footer>
+        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitImport">确认导入</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -75,15 +100,23 @@ import { costApi } from '../api'
 const costs = ref([])
 const selectedCosts = ref([])
 const filters = ref({ shop_name: '' })
+const pagination = ref({ page: 1, page_size: 20, total: 0 })
 const dialogVisible = ref(false)
+const importDialogVisible = ref(false)
 const editing = ref(false)
 const form = ref({ shop_name: '', sku: '', product_name: '', cost: 0 })
 const editingId = ref(null)
+const importFile = ref(null)
 
 const loadCosts = async () => {
   try {
-    const res = await costApi.getCosts(filters.value)
-    costs.value = res.data
+    const res = await costApi.getCosts({
+      ...filters.value,
+      page: pagination.value.page,
+      page_size: pagination.value.page_size
+    })
+    costs.value = res.data.items
+    pagination.value.total = res.data.total
   } catch (e) {
     ElMessage.error('加载失败')
   }
@@ -153,24 +186,75 @@ const handleUpload = async (file) => {
   try {
     await costApi.uploadCosts(file.raw)
     ElMessage.success('上传成功')
+    pagination.value.page = 1
     loadCosts()
   } catch (e) {
     ElMessage.error('上传失败')
   }
 }
 
+const openImportDialog = () => {
+  importFile.value = null
+  importDialogVisible.value = true
+}
+
+const handleImportFileChange = (file) => {
+  importFile.value = file.raw
+}
+
+const handleImportFileRemove = () => {
+  importFile.value = null
+}
+
+const submitImport = async () => {
+  if (!importFile.value) {
+    ElMessage.warning('请先选择上传文件')
+    return
+  }
+  try {
+    await costApi.uploadCosts(importFile.value)
+    ElMessage.success('导入成功')
+    importDialogVisible.value = false
+    pagination.value.page = 1
+    loadCosts()
+  } catch (e) {
+    ElMessage.error('导入失败')
+  }
+}
+
+const downloadTemplate = () => {
+  costApi.downloadTemplate()
+}
+
+const exportCosts = () => {
+  costApi.exportCosts({
+    shop_name: filters.value.shop_name.trim() || undefined
+  })
+}
+
 const handleSelectionChange = (selection) => {
   selectedCosts.value = selection
+}
+
+const applyFilters = () => {
+  pagination.value.page = 1
+  loadCosts()
 }
 
 const syncCosts = async () => {
   try {
     const res = await costApi.syncCosts(filters.value.shop_name)
     ElMessage.success(res.data.message)
+    pagination.value.page = 1
     loadCosts()
   } catch (e) {
     ElMessage.error('同步失败')
   }
+}
+
+const handlePageSizeChange = () => {
+  pagination.value.page = 1
+  loadCosts()
 }
 
 onMounted(() => {

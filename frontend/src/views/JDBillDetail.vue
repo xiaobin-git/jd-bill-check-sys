@@ -23,6 +23,29 @@
           <el-form-item label="商品编号">
             <el-input v-model="filters.product_no" placeholder="输入商品编号" clearable style="width: 180px" />
           </el-form-item>
+          <el-form-item label="费用名称">
+            <el-select v-model="filters.fee_name" placeholder="选择费用名称" clearable style="width: 180px">
+              <el-option
+                v-for="item in feeNameOptions"
+                :key="item"
+                :label="item"
+                :value="item"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="收支方向">
+            <el-select v-model="filters.direction" placeholder="选择收支方向" clearable style="width: 140px">
+              <el-option
+                v-for="item in directionOptions"
+                :key="item"
+                :label="item"
+                :value="item"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="商品名称">
+            <el-input v-model="filters.product_name" placeholder="输入商品名称" clearable style="width: 180px" />
+          </el-form-item>
           <el-form-item>
             <el-button type="primary" @click="applyFilters">查询</el-button>
           </el-form-item>
@@ -30,7 +53,7 @@
       </div>
     </el-card>
 
-    <el-table :data="displayItems" style="width: 100%" stripe @selection-change="handleSelectionChange">
+    <el-table :data="items" style="width: 100%" stripe @selection-change="handleSelectionChange">
       <el-table-column type="selection" width="55" />
       <el-table-column prop="order_no" label="订单号" width="170" show-overflow-tooltip />
       <el-table-column prop="order_time" label="下单时间" width="180">
@@ -52,6 +75,17 @@
         </template>
       </el-table-column>
     </el-table>
+    <div style="display: flex; justify-content: flex-end; margin-top: 16px">
+      <el-pagination
+        v-model:current-page="pagination.page"
+        v-model:page-size="pagination.page_size"
+        layout="total, sizes, prev, pager, next, jumper"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="pagination.total"
+        @current-change="loadItems"
+        @size-change="handlePageSizeChange"
+      />
+    </div>
 
     <el-dialog v-model="dialogVisible" :title="editing ? '编辑明细' : '添加明细'" width="760px">
       <el-form :model="form" label-width="100px">
@@ -129,8 +163,10 @@ const items = ref([])
 const selectedItems = ref([])
 const dialogVisible = ref(false)
 const editing = ref(false)
-const filters = ref({ order_no: '', product_no: '' })
-const appliedFilters = ref({ order_no: '', product_no: '' })
+const filters = ref({ order_no: '', product_no: '', fee_name: '', direction: '', product_name: '' })
+const pagination = ref({ page: 1, page_size: 20, total: 0 })
+const feeNameOptions = ref([])
+const directionOptions = ref([])
 const createEmptyForm = () => ({
   order_no: '',
   order_status: '',
@@ -156,17 +192,6 @@ const pageTitle = computed(() => {
   }
   return `${bill.value.shop_name} ${bill.value.date_range}`
 })
-const displayItems = computed(() => {
-  return items.value.filter((item) => {
-    const matchOrder =
-      !appliedFilters.value.order_no ||
-      item.order_no?.toLowerCase().includes(appliedFilters.value.order_no.trim().toLowerCase())
-    const matchProduct =
-      !appliedFilters.value.product_no ||
-      item.product_no?.toLowerCase().includes(appliedFilters.value.product_no.trim().toLowerCase())
-    return matchOrder && matchProduct
-  })
-})
 
 const goBack = () => {
   router.push('/jd-bills')
@@ -183,10 +208,29 @@ const loadBill = async () => {
 
 const loadItems = async () => {
   try {
-    const res = await jdBillApi.getItems(billId)
-    items.value = res.data
+    const res = await jdBillApi.getItems(billId, {
+      page: pagination.value.page,
+      page_size: pagination.value.page_size,
+      order_no: filters.value.order_no.trim() || undefined,
+      product_no: filters.value.product_no.trim() || undefined,
+      fee_name: filters.value.fee_name || undefined,
+      direction: filters.value.direction || undefined,
+      product_name: filters.value.product_name.trim() || undefined
+    })
+    items.value = res.data.items
+    pagination.value.total = res.data.total
   } catch (e) {
     ElMessage.error('加载失败')
+  }
+}
+
+const loadFilterOptions = async () => {
+  try {
+    const res = await jdBillApi.getItemFilterOptions(billId)
+    feeNameOptions.value = res.data.fee_names || []
+    directionOptions.value = res.data.directions || []
+  } catch (e) {
+    ElMessage.error('筛选项加载失败')
   }
 }
 
@@ -228,6 +272,7 @@ const saveItem = async () => {
     }
     ElMessage.success('保存成功')
     dialogVisible.value = false
+    loadFilterOptions()
     loadItems()
   } catch (e) {
     ElMessage.error('保存失败')
@@ -272,6 +317,7 @@ const handleUpload = async (file) => {
   try {
     await jdBillApi.uploadItems(billId, file.raw)
     ElMessage.success('上传成功')
+    loadFilterOptions()
     loadItems()
     loadBill()
   } catch (e) {
@@ -280,18 +326,22 @@ const handleUpload = async (file) => {
 }
 
 const applyFilters = () => {
-  appliedFilters.value = {
-    order_no: filters.value.order_no.trim(),
-    product_no: filters.value.product_no.trim()
-  }
+  pagination.value.page = 1
+  loadItems()
 }
 
 const handleSelectionChange = (selection) => {
   selectedItems.value = selection
 }
 
+const handlePageSizeChange = () => {
+  pagination.value.page = 1
+  loadItems()
+}
+
 onMounted(() => {
   loadBill()
+  loadFilterOptions()
   loadItems()
 })
 </script>

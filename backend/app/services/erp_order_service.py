@@ -11,8 +11,14 @@ class ERPOrderService:
     def get_orders(self, skip: int = 0, limit: int = 100, shop_name: Optional[str] = None) -> List[ERPOrder]:
         query = self.db.query(ERPOrder)
         if shop_name:
-            query = query.filter(ERPOrder.shop_name == shop_name)
-        return query.offset(skip).limit(limit).all()
+            query = query.filter(ERPOrder.shop_name.contains(shop_name))
+        return query.order_by(ERPOrder.id.desc()).offset(skip).limit(limit).all()
+
+    def count_orders(self, shop_name: Optional[str] = None) -> int:
+        query = self.db.query(ERPOrder)
+        if shop_name:
+            query = query.filter(ERPOrder.shop_name.contains(shop_name))
+        return query.count()
 
     def get_order(self, order_id: int) -> Optional[ERPOrder]:
         return self.db.query(ERPOrder).filter(ERPOrder.id == order_id).first()
