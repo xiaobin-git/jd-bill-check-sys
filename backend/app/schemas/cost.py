@@ -8,6 +8,7 @@ class CostBase(BaseModel):
     sku: str
     product_name: Optional[str] = None
     cost: float = 0.0
+    packaging_fee: float = 0.5
 
 
 class CostCreate(CostBase):

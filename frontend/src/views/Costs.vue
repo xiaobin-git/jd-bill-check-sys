@@ -1,10 +1,10 @@
 <template>
   <div>
-    <h2>成本管理</h2>
+    <h2>商品成本</h2>
     <el-card style="margin-bottom: 20px">
       <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap">
         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
-          <el-button type="primary" @click="showCreateDialog">添加成本</el-button>
+          <el-button type="primary" @click="showCreateDialog">添加商品成本</el-button>
           <el-button @click="openImportDialog">导入</el-button>
           <el-button @click="exportCosts">导出</el-button>
           <el-button type="success" @click="syncCosts">从京东账单同步</el-button>
@@ -13,6 +13,9 @@
         <el-form :inline="true" :model="filters" style="margin-left: auto">
           <el-form-item label="店铺名称">
             <el-input v-model="filters.shop_name" placeholder="输入店铺名称" clearable />
+          </el-form-item>
+          <el-form-item label="商品名称">
+            <el-input v-model="filters.product_name" placeholder="输入商品名称" clearable />
           </el-form-item>
           <el-form-item>
             <el-button type="primary" @click="applyFilters">查询</el-button>
@@ -29,6 +32,9 @@
       <el-table-column prop="product_name" label="商品名称" show-overflow-tooltip />
       <el-table-column prop="cost" label="成本" width="120">
         <template #default="{ row }">¥{{ row.cost?.toFixed(2) }}</template>
+      </el-table-column>
+      <el-table-column prop="packaging_fee" label="包材费用" width="120">
+        <template #default="{ row }">¥{{ row.packaging_fee?.toFixed(2) }}</template>
       </el-table-column>
       <el-table-column label="操作" width="180">
         <template #default="{ row }">
@@ -49,7 +55,7 @@
       />
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑成本' : '添加成本'" width="500px">
+    <el-dialog v-model="dialogVisible" :title="editing ? '编辑商品成本' : '添加商品成本'" width="500px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="店铺名称">
           <el-input v-model="form.shop_name" />
@@ -63,6 +69,9 @@
         <el-form-item label="成本">
           <el-input-number v-model="form.cost" :precision="2" />
         </el-form-item>
+        <el-form-item label="包材费用">
+          <el-input-number v-model="form.packaging_fee" :precision="2" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -70,7 +79,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="importDialogVisible" title="导入成本" width="520px">
+    <el-dialog v-model="importDialogVisible" title="导入商品成本" width="520px">
       <div style="display: flex; flex-direction: column; gap: 16px">
         <el-button @click="downloadTemplate">下载模板</el-button>
         <el-upload
@@ -99,12 +108,12 @@ import { costApi } from '../api'
 
 const costs = ref([])
 const selectedCosts = ref([])
-const filters = ref({ shop_name: '' })
+const filters = ref({ shop_name: '', product_name: '' })
 const pagination = ref({ page: 1, page_size: 20, total: 0 })
 const dialogVisible = ref(false)
 const importDialogVisible = ref(false)
 const editing = ref(false)
-const form = ref({ shop_name: '', sku: '', product_name: '', cost: 0 })
+const form = ref({ shop_name: '', sku: '', product_name: '', cost: 0, packaging_fee: 0.5 })
 const editingId = ref(null)
 const importFile = ref(null)
 
@@ -124,7 +133,7 @@ const loadCosts = async () => {
 
 const showCreateDialog = () => {
   editing.value = false
-  form.value = { shop_name: '', sku: '', product_name: '', cost: 0 }
+  form.value = { shop_name: '', sku: '', product_name: '', cost: 0, packaging_fee: 0.5 }
   dialogVisible.value = true
 }
 
@@ -135,7 +144,8 @@ const showEditDialog = (row) => {
     shop_name: row.shop_name,
     sku: row.sku,
     product_name: row.product_name,
-    cost: row.cost || 0
+    cost: row.cost || 0,
+    packaging_fee: row.packaging_fee ?? 0.5
   }
   dialogVisible.value = true
 }
@@ -228,7 +238,8 @@ const downloadTemplate = () => {
 
 const exportCosts = () => {
   costApi.exportCosts({
-    shop_name: filters.value.shop_name.trim() || undefined
+    shop_name: filters.value.shop_name.trim() || undefined,
+    product_name: filters.value.product_name.trim() || undefined
   })
 }
 

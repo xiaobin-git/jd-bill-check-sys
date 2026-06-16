@@ -14,11 +14,17 @@ router = APIRouter(prefix="/api/costs", tags=["成本管理"])
 
 
 @router.get("")
-def get_costs(page: int = 1, page_size: int = 20, shop_name: Optional[str] = None, db: Session = Depends(get_db)):
+def get_costs(
+    page: int = 1,
+    page_size: int = 20,
+    shop_name: Optional[str] = None,
+    product_name: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     service = CostService(db)
     skip = max(page - 1, 0) * page_size
-    items = service.get_costs(skip=skip, limit=page_size, shop_name=shop_name)
-    total = service.count_costs(shop_name=shop_name)
+    items = service.get_costs(skip=skip, limit=page_size, shop_name=shop_name, product_name=product_name)
+    total = service.count_costs(shop_name=shop_name, product_name=product_name)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -43,9 +49,11 @@ async def upload_costs(file: UploadFile = File(...), db: Session = Depends(get_d
             "shop_name": _normalize_string_value(item.get("店铺名称") or item.get("shop_name")),
             "sku": _normalize_string_value(item.get("sku") or item.get("SKU") or item.get("商品编号")),
             "product_name": _normalize_string_value(item.get("商品名称") or item.get("product_name")),
-            "cost": pd.to_numeric(item.get("成本") or item.get("cost") or 0, errors="coerce")
+            "cost": pd.to_numeric(item.get("成本") or item.get("cost") or 0, errors="coerce"),
+            "packaging_fee": pd.to_numeric(item.get("包材费用") or item.get("packaging_fee") or 0.5, errors="coerce"),
         }
         mapped["cost"] = float(mapped["cost"]) if not pd.isna(mapped["cost"]) else 0.0
+        mapped["packaging_fee"] = float(mapped["packaging_fee"]) if not pd.isna(mapped["packaging_fee"]) else 0.5
         if mapped["shop_name"] and mapped["sku"]:
             costs.append(CostCreate(**mapped))
     
@@ -61,15 +69,20 @@ def sync_from_jd_bills(shop_name: Optional[str] = None, db: Session = Depends(ge
 
 
 @router.get("/export")
-def export_costs(shop_name: Optional[str] = None, db: Session = Depends(get_db)):
+def export_costs(
+    shop_name: Optional[str] = None,
+    product_name: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     service = CostService(db)
-    rows = service.list_costs(shop_name=shop_name)
+    rows = service.list_costs(shop_name=shop_name, product_name=product_name)
     payload = [
         {
             "店铺名称": row.shop_name,
             "SKU": row.sku,
             "商品名称": row.product_name,
             "成本": row.cost,
+            "包材费用": row.packaging_fee,
         }
         for row in rows
     ]
@@ -83,7 +96,7 @@ def export_costs(shop_name: Optional[str] = None, db: Session = Depends(get_db))
 
 @router.get("/template")
 def download_cost_template():
-    df = pd.DataFrame(columns=["店铺名称", "SKU", "商品名称", "成本"])
+    df = pd.DataFrame(columns=["店铺名称", "SKU", "商品名称", "成本", "包材费用"])
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="成本导入模板")

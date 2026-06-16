@@ -42,8 +42,21 @@ def ensure_express_bill_columns():
                 conn.execute(text(f"ALTER TABLE express_bills ADD COLUMN {column_name} {column_type}"))
 
 
+def ensure_cost_columns():
+    expected_columns = {
+        "packaging_fee": "FLOAT DEFAULT 0.5",
+    }
+    with engine.begin() as conn:
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(costs)")).fetchall()}
+        for column_name, column_type in expected_columns.items():
+            if column_name not in existing:
+                conn.execute(text(f"ALTER TABLE costs ADD COLUMN {column_name} {column_type}"))
+        conn.execute(text("UPDATE costs SET packaging_fee = 0.5 WHERE packaging_fee IS NULL"))
+
+
 ensure_erp_order_columns()
 ensure_express_bill_columns()
+ensure_cost_columns()
 ensure_mapping_file()
 
 app = FastAPI(title="京东账单核对系统")

@@ -190,9 +190,18 @@ class CalculationService:
         costs = []
         if product_nos:
             costs = self.db.query(Cost).filter(Cost.sku.in_(product_nos)).all()
-        df_costs = pd.DataFrame([{"sku": cost.sku, "cost": cost.cost or 0} for cost in costs])
+        df_costs = pd.DataFrame(
+            [
+                {
+                    "sku": cost.sku,
+                    "cost": cost.cost or 0,
+                    "packaging_fee": cost.packaging_fee if cost.packaging_fee is not None else 0.5,
+                }
+                for cost in costs
+            ]
+        )
         if df_costs.empty:
-            df_costs = pd.DataFrame(columns=["sku", "cost"])
+            df_costs = pd.DataFrame(columns=["sku", "cost", "packaging_fee"])
 
         return df_jd, df_erp, df_express, df_costs
 
@@ -218,6 +227,8 @@ class CalculationService:
                         "volume",
                         "address",
                         "product_cost",
+                        "packaging_cost",
+                        "income_total",
                     ]
                 ),
                 [],
@@ -272,6 +283,17 @@ class CalculationService:
                 base_df[fee] = 0.0
             else:
                 base_df[fee] = pd.to_numeric(base_df[fee], errors="coerce").fillna(0.0)
+        if "货款" not in base_df.columns:
+            base_df["货款"] = 0.0
+        income_total_df = (
+            df_jd[df_jd["direction"].apply(self._normalize_direction) == "income"]
+            .assign(settlement_amount=lambda frame: frame["settlement_amount"].abs())
+            .groupby(key_cols, dropna=False)["settlement_amount"]
+            .sum()
+            .reset_index(name="income_total")
+        )
+        base_df = base_df.merge(income_total_df, on=key_cols, how="left")
+        base_df["income_total"] = pd.to_numeric(base_df["income_total"], errors="coerce").fillna(0.0)
 
         if not df_erp.empty:
             df_erp = df_erp.copy()
@@ -313,9 +335,13 @@ class CalculationService:
             df_costs = df_costs.copy()
             df_costs["sku"] = df_costs["sku"].apply(lambda value: self._clean_text(value, ""))
             df_costs["cost"] = pd.to_numeric(df_costs["cost"], errors="coerce")
+            df_costs["packaging_fee"] = pd.to_numeric(df_costs["packaging_fee"], errors="coerce")
             cost_df = (
                 df_costs.groupby("sku", dropna=False)
-                .agg(unit_cost=("cost", self._first_not_null))
+                .agg(
+                    unit_cost=("cost", self._first_not_null),
+                    unit_packaging_fee=("packaging_fee", self._first_not_null),
+                )
                 .reset_index()
             )
             base_df = base_df.merge(cost_df, left_on="product_no", right_on="sku", how="left").drop(
@@ -323,11 +349,15 @@ class CalculationService:
             )
         else:
             base_df["unit_cost"] = None
+            base_df["unit_packaging_fee"] = None
 
         base_df["freight"] = pd.to_numeric(base_df.get("freight"), errors="coerce").fillna(0.0)
         base_df["quantity"] = pd.to_numeric(base_df["quantity"], errors="coerce").fillna(0)
         base_df["unit_cost"] = pd.to_numeric(base_df.get("unit_cost"), errors="coerce").fillna(0.0)
+        base_df["unit_packaging_fee"] = pd.to_numeric(base_df.get("unit_packaging_fee"), errors="coerce").fillna(0.5)
         base_df["product_cost"] = base_df["unit_cost"] * base_df["quantity"]
+        base_df["packaging_cost"] = base_df["unit_packaging_fee"] * base_df["quantity"]
+        base_df.loc[base_df["货款"].fillna(0) <= 0, "product_cost"] = 0.0
 
         for col in ["weight", "volume"]:
             base_df[col] = pd.to_numeric(base_df.get(col), errors="coerce")
@@ -342,7 +372,9 @@ class CalculationService:
                 "重量",
                 "体积",
                 "收货地址",
+                "包材费用",
                 "商品成本",
+                "合计",
             ]
             return pd.DataFrame(columns=columns)
 
@@ -358,7 +390,9 @@ class CalculationService:
             "weight": "重量",
             "volume": "体积",
             "address": "收货地址",
+            "packaging_cost": "包材费用",
             "product_cost": "商品成本",
+            "income_total": "合计",
         }
         formatted_df = formatted_df.rename(columns=rename_dict)
 
@@ -368,13 +402,15 @@ class CalculationService:
             "重量",
             "体积",
             "收货地址",
+            "包材费用",
             "商品成本",
+            "合计",
         ]
         for col in selected_columns:
             if col not in formatted_df.columns:
                 formatted_df[col] = None
 
-        numeric_columns = ["数量", "快递费用", "重量", "体积", "商品成本"] + fee_columns
+        numeric_columns = ["数量", "快递费用", "重量", "体积", "包材费用", "商品成本", "合计"] + fee_columns
         for col in numeric_columns:
             formatted_df[col] = pd.to_numeric(formatted_df[col], errors="coerce")
 
@@ -414,8 +450,9 @@ class CalculationService:
                 freight_total = float(express_rows.drop_duplicates(subset=["express_no"])["freight"].fillna(0).sum())
 
         cost_total = float(export_df["product_cost"].fillna(0).sum()) if "product_cost" in export_df.columns else 0.0
+        packaging_total = float(export_df["packaging_cost"].fillna(0).sum()) if "packaging_cost" in export_df.columns else 0.0
         jd_expense_total = float(jd_expense_df["settlement_amount_abs"].sum())
-        total_expense = jd_expense_total + freight_total + cost_total
+        total_expense = jd_expense_total + freight_total + packaging_total + cost_total
         profit = total_income - total_expense
         order_count = export_df["order_no"].nunique() if "order_no" in export_df.columns else 0
 
@@ -443,7 +480,7 @@ class CalculationService:
                 .groupby("fee_name")["settlement_amount_abs"]
                 .sum()
             )
-        expense_series_list.append(pd.Series({"运费": freight_total, "商品成本": cost_total}))
+        expense_series_list.append(pd.Series({"运费": freight_total, "包材费用": packaging_total, "商品成本": cost_total}))
         expense_by_category = pd.concat(expense_series_list).groupby(level=0).sum().sort_values(ascending=False)
         expense_list = [
             {

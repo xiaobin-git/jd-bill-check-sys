@@ -11,5 +11,6 @@ class Cost(Base):
     sku = Column(String, nullable=False, index=True)
     product_name = Column(String)
     cost = Column(Float, default=0.0)
+    packaging_fee = Column(Float, default=0.5)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

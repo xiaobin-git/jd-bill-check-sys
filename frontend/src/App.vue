@@ -29,7 +29,7 @@
         </el-menu-item>
         <el-menu-item index="/costs">
           <el-icon><Money /></el-icon>
-          <span>成本管理</span>
+          <span>商品成本</span>
         </el-menu-item>
       </el-menu>
     </el-aside>

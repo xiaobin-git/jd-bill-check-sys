@@ -9,21 +9,29 @@ class CostService:
     def __init__(self, db: Session):
         self.db = db
 
-    def _build_query(self, shop_name: Optional[str] = None):
+    def _build_query(self, shop_name: Optional[str] = None, product_name: Optional[str] = None):
         query = self.db.query(Cost)
         if shop_name:
             query = query.filter(Cost.shop_name.contains(shop_name))
+        if product_name:
+            query = query.filter(Cost.product_name.contains(product_name))
         return query
 
-    def get_costs(self, skip: int = 0, limit: int = 100, shop_name: Optional[str] = None) -> List[Cost]:
-        query = self._build_query(shop_name=shop_name)
+    def get_costs(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        shop_name: Optional[str] = None,
+        product_name: Optional[str] = None,
+    ) -> List[Cost]:
+        query = self._build_query(shop_name=shop_name, product_name=product_name)
         return query.order_by(Cost.id.desc()).offset(skip).limit(limit).all()
 
-    def count_costs(self, shop_name: Optional[str] = None) -> int:
-        return self._build_query(shop_name=shop_name).count()
+    def count_costs(self, shop_name: Optional[str] = None, product_name: Optional[str] = None) -> int:
+        return self._build_query(shop_name=shop_name, product_name=product_name).count()
 
-    def list_costs(self, shop_name: Optional[str] = None) -> List[Cost]:
-        return self._build_query(shop_name=shop_name).order_by(Cost.id.desc()).all()
+    def list_costs(self, shop_name: Optional[str] = None, product_name: Optional[str] = None) -> List[Cost]:
+        return self._build_query(shop_name=shop_name, product_name=product_name).order_by(Cost.id.desc()).all()
 
     def get_cost(self, cost_id: int) -> Optional[Cost]:
         return self.db.query(Cost).filter(Cost.id == cost_id).first()
@@ -58,6 +66,7 @@ class CostService:
             if existing:
                 existing.product_name = cost.product_name
                 existing.cost = cost.cost
+                existing.packaging_fee = cost.packaging_fee
                 result.append(existing)
             else:
                 db_cost = Cost(**cost.model_dump())
@@ -116,7 +125,8 @@ class CostService:
                     shop_name=item.bill.shop_name,
                     sku=sku,
                     product_name=item.product_name,
-                    cost=0.0
+                    cost=0.0,
+                    packaging_fee=0.5,
                 )
                 self.db.add(cost)
                 existing_skus.add(sku)
